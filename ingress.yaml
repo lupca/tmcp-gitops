@@ -1,0 +1,23 @@
+# ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: marketing-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /pb
+        pathType: Prefix
+        backend:
+          service:
+            name: pb-service
+            port: { number: 80 }
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: blog-service
+            port: { number: 80 }

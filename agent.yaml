@@ -1,0 +1,27 @@
+# agent.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketing-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: agent }
+  template:
+    metadata: { labels: { app: agent } }
+    spec:
+      containers:
+      - name: agent
+        image: lupca/tmcp-agents:latest # Image from Docker Hub
+        env:
+        - name: PB_URL
+          value: "http://pb-service" # Tên service của PB
+        ports: [{ containerPort: 8000 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-service
+spec:
+  selector: { app: agent }
+  ports: [{ port: 80, targetPort: 8000 }]
