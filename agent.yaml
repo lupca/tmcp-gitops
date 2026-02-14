@@ -15,7 +15,13 @@ spec:
         image: lupca/tmcp-agents:latest # Image from Docker Hub
         env:
         - name: PB_URL
-          value: "http://pb-service" # Tên service của PB
+          value: "http://pb-service"
+        - name: MCP_SERVER_URL
+          value: "http://bridge-service/sse"
+        - name: POCKETBASE_USER
+          value: "admin@admin.com"
+        - name: POCKETBASE_PASSWORD
+          value: "123qweasdzxc"
         ports: [{ containerPort: 8000 }]
 ---
 apiVersion: v1
