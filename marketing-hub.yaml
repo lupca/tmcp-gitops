@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: hub
-        image: lupca/tmcp-marketing-hub:latest
+        image: lupca/tmcp-marketing-hub:v0.0.7
         ports: [{ containerPort: 80 }]
 ---
 apiVersion: v1
