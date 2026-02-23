@@ -37,6 +37,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: fluentd-config
+  namespace: default
 data:
   fluent.conf: |
     <source>
