@@ -27,6 +27,15 @@ spec:
   stripPrefix:
     prefixes: ["/api/agent"]
 ---
+# Middleware: strip /kibana prefix
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-kibana
+spec:
+  stripPrefix:
+    prefixes: ["/kibana"]
+---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -63,4 +72,12 @@ spec:
     kind: Rule
     services:
     - name: blog-service
+      port: 80
+  # Kibana UI
+  - match: PathPrefix(`/kibana`)
+    kind: Rule
+    middlewares:
+    - name: strip-kibana
+    services:
+    - name: kibana-service
       port: 80
