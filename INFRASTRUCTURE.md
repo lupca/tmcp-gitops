@@ -35,14 +35,36 @@ graph LR
 
     Blog -->|"http://pb-service"| PB
     Hub -->|"/pb"| PB
+    Hub -->|"/pb"| PB
     Hub -->|"/api/agent"| Agent
     Agent -->|"http://bridge-service/sse"| Bridge[mcp-bridge :7999]
     Bridge -->|"http://pb-service"| PB
+    
+    Kibana[Kibana / Prometheus] -->|"http://aiops-agent-..."| AIOps[aiops-agent :8000]
+    AIOps -->|"http://elasticsearch..."| ES[Elasticsearch]
+    AIOps -->|"http://ollama..."| Ollama[Ollama LLM]
+    AIOps -->|"HTTPS"| Discord[Discord Webhook]
 ```
 
 ---
 
 ## Proposed Changes
+
+### AIOps Agent Deployment (Internal SRE Tool)
+
+#### [NEW] [aiops-agent.yaml](aiops-agent.yaml)
+
+Deployment + Service cho `tmcp-aiops-agent`:
+- Image: `lupca/tmcp-aiops-agent:latest`
+- Port: 8000
+- Env: Trỏ tới Elasticsearch và Ollama.
+- Secret: Lấy `DISCORD_WEBHOOK_URL` thông qua ExternalSecrets.
+- Service: `aiops-agent-service` → port 80 → targetPort 8000
+
+> [!IMPORTANT]
+> **Internal Service Only**: AIOps Agent hoàn toàn **không** được cấu hình trong `ingress.yaml`. Nó là một service nội bộ. Kibana và Prometheus (hoặc các SRE trigger thủ công) sẽ gọi trực tiếp webhook nội bộ thông qua URL: `http://aiops-agent-service.<namespace>.svc.cluster.local:80/api/webhook/alert`. Quyết định này giúp loại bỏ rủi ro bị tấn công DDoS/Spam webhook từ bên ngoài Internet.
+
+---
 
 ### MCP Bridge Deployment
 
@@ -139,8 +161,9 @@ Thêm routes (Sử dụng Traefik IngressRoute cho StripPrefix):
 > [!TIP]
 > **Thêm/Sửa Mật Khẩu với Vault & ESO**
 > 1. Lưu secret vào Vault: `kubectl exec -it -n vault vault-0 -- vault kv put secret/tmcp/agent POCKETBASE_PASSWORD="YOUR_PASSWORD"`
-> 2. Khai báo `ExternalSecret` trong GitOps YAML của app tương ứng (ví dụ: `agent.yaml`)
-> 3. ESO sẽ tự động lấy secret từ Vault và tạo thành K8s Secret trong cluster. Git repostiory sẽ hoàn toàn không chứa plaintext password.
+> 2. Lệnh tạo secret quản lý Discord cho AIOps: `kubectl exec -it -n vault vault-0 -- vault kv put secret/tmcp/aiops-agent DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."`
+> 3. Khai báo `ExternalSecret` trong GitOps YAML của app tương ứng (ví dụ: `agent.yaml`, `aiops-agent.yaml`)
+> 4. ESO sẽ tự động lấy secret từ Vault và tạo thành K8s Secret trong cluster. Git repostiory sẽ hoàn toàn không chứa plaintext password.
 
 1. **Kiểm tra tất cả pods running**: `kubectl get pods` - tất cả pods phải ở trạng thái Running
 2. **Kiểm tra services**: `kubectl get svc` - phải có: `pb-service`, `blog-service`, `agent-service`, `bridge-service`, `hub-service`

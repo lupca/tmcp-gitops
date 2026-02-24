@@ -1,0 +1,54 @@
+# aiops-agent.yaml
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: aiops-agent-secrets
+  annotations:
+    argocd.argoproj.io/sync-wave: "1" # ĐÁNH DẤU ƯU TIÊN 2 (Đợi sóng -1 xong mới chạy)
+spec:
+  refreshInterval: "30s"
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: aiops-agent-secrets-k8s
+    creationPolicy: Owner
+  data:
+    - secretKey: DISCORD_WEBHOOK_URL
+      remoteRef:
+        key: tmcp/aiops-agent
+        property: DISCORD_WEBHOOK_URL
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: aiops-agent }
+  template:
+    metadata: { labels: { app: aiops-agent } }
+    spec:
+      containers:
+      - name: aiops-agent
+        image: lupca/tmcp-aiops-agent:latest # Image from Docker Hub
+        env:
+        - name: ELASTICSEARCH_URL
+          value: "http://elasticsearch-service:9200"
+        - name: OLLAMA_BASE_URL
+          value: "http://ollama-service:11434" # Assume ollama is running in cluster or adjust accordingly
+        - name: OLLAMA_MODEL
+          value: "llama3"
+        envFrom:
+        - secretRef:
+            name: aiops-agent-secrets-k8s
+        ports: [{ containerPort: 8000 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-agent-service
+spec:
+  selector: { app: aiops-agent }
+  ports: [{ port: 80, targetPort: 8000 }]

@@ -3,6 +3,8 @@ apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
   name: bridge-secrets
+  annotations:
+    argocd.argoproj.io/sync-wave: "1" # ĐÁNH DẤU ƯU TIÊN 2 (Đợi sóng -1 xong mới chạy)
 spec:
   refreshInterval: "30s"
   secretStoreRef:

@@ -3,6 +3,8 @@ apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
   name: agent-secrets
+  annotations:
+    argocd.argoproj.io/sync-wave: "1" # ĐÁNH DẤU ƯU TIÊN 2 (Đợi sóng -1 xong mới chạy)
 spec:
   refreshInterval: "30s"
   secretStoreRef:
@@ -38,6 +40,10 @@ spec:
           value: "http://bridge-service/sse"
         - name: POCKETBASE_USER
           value: "admin@admin.com"
+        - name: OLLAMA_BASE_URL
+          value: "http://ollama-service:11434"
+        - name: OLLAMA_MODEL
+          value: "qwen2.5"
         envFrom:
         - secretRef:
             name: agent-secrets-k8s
