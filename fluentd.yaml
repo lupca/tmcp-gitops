@@ -30,6 +30,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: fluentd
+  namespace: tmcp-marketing
 ---
 apiVersion: v1
 kind: ConfigMap
