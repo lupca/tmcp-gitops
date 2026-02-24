@@ -130,46 +130,81 @@ Thêm routes (Sử dụng Traefik IngressRoute cho StripPrefix):
 
 ---
 
-## Verification Plan
+## Standard Operating Procedures (SOP) & Troubleshooting
 
-### Manual Verification (sau khi push code + Argo CD sync)
+Dưới đây là các thủ tục quan trọng nhất rút ra từ quá trình vận hành thực tế Cụm K3s + ArgoCD + Vault:
 
-> [!CAUTION]
-> **HashiCorp Vault Unseal Process (CRITICAL)**
-> 1. Bật tính năng K8s Auth trên Vault
-> vault auth enable kubernetes
->   
-> 2. Cấu hình để Vault biết nó đang nằm trong cụm K8s nào
-> vault write auth/kubernetes/config \
->    kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443"
+### 1. Vấn đề "Con gà - Quả trứng" khi Sync ArgoCD lần đầu
+Khi deploy toàn bộ thư mục `tmcp-gitops` lên một cluster mới tinh, ArgoCD có thể báo lỗi:
+> `Resource not found in cluster: argoproj.io/v1alpha1/Application:external-secrets`
 
-> 3. Tạo Role tên là "eso" (khớp với YAML của AI) và cho phép SA "external-secrets" được phép đọc nhánh "secret/data/tmcp/*"
-> vault write auth/kubernetes/role/eso \
->    bound_service_account_names=external-secrets \
->    bound_service_account_namespaces=external-secrets \
->    policies=eso-policy \
->    ttl=1h
-> Vì chúng ta sử dụng bare-metal K3s và không dùng Cloud KMS, Vault sẽ chuyển sang trạng thái **Sealed** mỗi khi Pod khởi động lại hoặc Node reboot. 
-> **Bắt buộc** phải chạy lệnh unseal bằng tay mỗi lần restart:
-> ```bash
-> kubectl exec -it -n vault vault-0 -- vault operator unseal <UNSEAL_KEY_1>
-> kubectl exec -it -n vault vault-0 -- vault operator unseal <UNSEAL_KEY_2>
-> kubectl exec -it -n vault vault-0 -- vault operator unseal <UNSEAL_KEY_3>
-> ```
-> *(Thay thế `<UNSEAL_KEY_X>` bằng các key nhận được lúc chạy `vault operator init` lần đầu)*
+**Nguyên nhân:** Kubernetes từ chối Dry-run vì chưa hiểu `ExternalSecret` là gì (do App `external-secrets` chứa định nghĩa CRD chưa được cài đặt).
+**Cách xử lý:** 
+Chạy Sync theo 2 giai đoạn thủ công trên giao diện ArgoCD:
+- **Giai đoạn 1 (Infra):** Chỉ tick chọn cài đặt `eso-application.yaml` và `vault-application.yaml`. Chờ 2 App này xanh lá.
+- **Giai đoạn 2 (Workloads):** Bấm Sync lại và tick cài đặt tất cả các file còn lại (`agent.yaml`, `aiops-agent.yaml`,...). Lúc này Sync-waves mới phát huy tác dụng.
 
-> [!TIP]
-> **Thêm/Sửa Mật Khẩu với Vault & ESO**
-> 1. Lưu secret vào Vault: `kubectl exec -it -n vault vault-0 -- vault kv put secret/tmcp/agent POCKETBASE_PASSWORD="YOUR_PASSWORD"`
-> 2. Lệnh tạo secret quản lý Discord cho AIOps: `kubectl exec -it -n vault vault-0 -- vault kv put secret/tmcp/aiops-agent DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."`
-> 3. Khai báo `ExternalSecret` trong GitOps YAML của app tương ứng (ví dụ: `agent.yaml`, `aiops-agent.yaml`)
-> 4. ESO sẽ tự động lấy secret từ Vault và tạo thành K8s Secret trong cluster. Git repostiory sẽ hoàn toàn không chứa plaintext password.
+### 2. Vault ProvisioningFailed (Lỗi StorageClass)
+> `ProvisioningFailed: storageclass.storage.k8s.io "longhorn" not found`
 
-1. **Kiểm tra tất cả pods running**: `kubectl get pods` - tất cả pods phải ở trạng thái Running
-2. **Kiểm tra services**: `kubectl get svc` - phải có: `pb-service`, `blog-service`, `agent-service`, `bridge-service`, `hub-service`
-3. **Kiểm tra Ingress**: `kubectl get ingress` (hoặc `kubectl get ingressroute`) - phải có routes cho `/`, `/pb`, `/hub`, `/api/agent`
-4. **Test PocketBase**: Truy cập `http://<server-ip>/pb/_/` - phải mở được admin UI
-5. **Test Blog**: Truy cập `http://<server-ip>/` - phải load được blog
-6. **Test Marketing Hub**: Truy cập `http://<server-ip>/hub` - phải load được SPA
-7. **Test Agent API**: `curl http://<server-ip>/api/agent/health` - phải trả về `{"status":"ok"}`
-8. **Test Agent ↔ Bridge**: Gửi chat message từ Marketing Hub → xem Agent có gọi được MCP tools không
+**Nguyên nhân:** Cụm K3s bare-metal mặc định dùng `local-path`, không có cài `longhorn`.
+**Cách xử lý:** Không truyền cứng (`hardcode`) tham số `storageClass` vào file `vault-application.yaml`. Xóa trực tiếp StatefulSet bị lỗi bằng lệnh `kubectl delete statefulset vault -n vault`, sau đó ArgoCD sẽ tự động tái tạo bằng StorageClass mặc định.
+
+### 3. Khởi tạo và Mở Khoá Vault (Vault Init & Unseal)
+Mặc định khi cài xong, Vault sẽ báo lỗi `Readiness probe failed (Initialized false, Sealed true)`.
+
+**Bước 1: Khởi tạo (Chỉ làm 1 lần duy nhất trong đời hệ thống)**
+```bash
+kubectl exec -it -n vault vault-0 -- vault operator init
+```
+*Lưu ngay 5 mã "Unseal Key" và 1 mã "Initial Root Token" ra nơi an toàn. Mất mã này là mất vĩnh viễn quyền truy cập.*
+
+**Bước 2: Hệ thống Unseal (Sau mỗi lần Pod/Server khởi động lại)**
+Do không có Cloud KMS, bạn phải unseal bằng tay bằng cách chạy lệnh này 3 lượt, mỗi lượt nạp 1 Key bất kỳ (cần 3/5 key):
+```bash
+kubectl exec -it -n vault vault-0 -- vault operator unseal
+# Dán Key vào rổi Enter
+```
+Khi chạy `vault status`, thấy `Initialized: true` và `Sealed: false` là thành công.
+
+### 4. Bật xác thực Kubernetes Auth (Bắt buộc cho External Secrets)
+Dù đã mở khoá, ExternalSecret Operator (ESO) vẫn sẽ báo `unable to log in with Kubernetes auth: Error making API request`. Bạn phải báo cho Vault biết cách uỷ quyền cho K8s.
+
+**Thực hiện 5 lệnh sau bằng quyền Root:**
+```bash
+# 1. Đăng nhập quyền root (Dán Initial Root Token thay vào chữ hvs...)
+sudo kubectl exec -it -n vault vault-0 -- vault login hvs.xxxxx...
+
+# 2. Bật Engine chứa Secret (KV phiên bản 2) - Nơi chứa mật khẩu của ta
+sudo kubectl exec -it -n vault vault-0 -- vault secrets enable -path=secret kv-v2
+
+# 3. Kích hoạt tính năng K8s Auth
+sudo kubectl exec -it -n vault vault-0 -- vault auth enable kubernetes
+
+# 4. Lưu lại toạ độ API của Cluster K8s hiện tại
+sudo kubectl exec -it -n vault vault-0 -- sh -c 'vault write auth/kubernetes/config kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443"'
+
+# 5. Tạo Policy và uỷ quyền cho ServiceAccount "external-secrets" được đọc data
+sudo kubectl exec -it -n vault vault-0 -- sh -c "echo 'path \"secret/data/tmcp/*\" { capabilities = [\"read\"] }' | vault policy write eso-policy -"
+sudo kubectl exec -it -n vault vault-0 -- vault write auth/kubernetes/role/eso bound_service_account_names=external-secrets bound_service_account_namespaces=external-secrets policies=eso-policy ttl=1h
+```
+
+### 5. Quản trị Mật khẩu (Secret Management)
+Nếu Pod báo chờ `CreateContainerConfigError`, nghĩa là ESO không móc được Secret từ Vault (do bạn chưa tạo key). 
+
+**Cách tạo / cập nhật mật khẩu:**
+```bash
+# Sửa/Tạo mật khẩu cho PocketBase (Agent)
+kubectl exec -it -n vault vault-0 -- vault kv put secret/tmcp/agent POCKETBASE_PASSWORD="YOUR_PASSWORD"
+
+# Sửa/Tạo mật khẩu Discord (AIOps Agent)
+kubectl exec -it -n vault vault-0 -- vault kv put secret/tmcp/aiops-agent DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/xxxx/yyyy"
+```
+*Sau khi chạy lệnh, vào ArgoCD ấn Refresh và Sync App `tmcp-gitops` để ESO cập nhật ngay lập tức.*
+
+---
+
+## Testing Workflow
+1. **Kiểm tra sức khoẻ**: `kubectl get pods -A` (Tất cả phải Running)
+2. **Kiểm tra Ingress Routes**: Truy cập `/pb/_/` (PocketBase), `/hub` (Marketing SPA), `/api/agent/health`.
+3. **Trigger AIOps Local**: Gửi HTTP POST tới `http://aiops-agent-service.default.svc.cluster.local/api/webhook/alert` từ bên trong cụm để test luồng Discord webhook.
