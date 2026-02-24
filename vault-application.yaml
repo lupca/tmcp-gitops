@@ -15,7 +15,6 @@ spec:
           dataStorage:
             enabled: true
             size: 10Gi
-            storageClass: "longhorn"
           # Since we aren't using cloud KMS, auto-unseal is not available.
           # Manual unseal is required on every pod restart.
   destination:
