@@ -75,6 +75,7 @@
 │  │  /hub       → hub-service:80        (Marketing Hub SPA)    │    │
 │  │  /pb        → pb-service:80         (PocketBase API)       │    │
 │  │  /api/agent → agent-service:80      (Marketing Agent)      │    │
+│  │  /kibana    → kibana-service:80     (Kibana UI)            │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 │                                                                     │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐           │
@@ -102,16 +103,17 @@
 │                                   │  PVC 1Gi │                      │
 │                                   └──────────┘                      │
 │                                                                     │
-│  ┌─────────────────┐                                                │
-│  │    Argo CD       │  ← watches tmcp-gitops repo (main branch)    │
-│  │  (GitOps Ctrl)   │  → auto-sync manifests to cluster            │
-│  └─────────────────┘                                                │
+│  ┌─────────────────┐           ┌───────────────────────────────┐│
+│  │    Argo CD       │  ← syncs │ AIOps Observability Layer     ││
+│  │  (GitOps Ctrl)   │   (Git)  │ (Elasticsearch, Kibana,       ││
+│  └─────────────────┘           │  FluentD)                     ││
+│                                └───────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────────┘
 
-                    ┌──────────────────┐
-                    │   Ollama (LLM)   │
-                    │  (External Host) │
-                    └──────────────────┘
+                    ┌──────────────────┐    ┌──────────────────┐
+                    │   Ollama (LLM)   │    │  Discord Webhook │
+                    │  (External Host) │    │  (External)      │
+                    └──────────────────┘    └──────────────────┘
 ```
 
 ### 2.2. Sơ đồ Mermaid
@@ -140,6 +142,13 @@ graph TB
             PVC[(💾 PVC 1Gi<br>SQLite Data)]
         end
 
+        subgraph AIOpsLayer["AIOps Layer (Observability)"]
+            FluentD[FluentD<br>DaemonSet]
+            ES[(ElasticSearch<br>PVC 5Gi)]
+            Kibana[Kibana UI<br>:5601]
+            AIOpsAgent[AIOps CronJob<br>Python/Agent]
+        end
+
         ArgoCD[🔄 Argo CD]
     end
 
@@ -147,6 +156,7 @@ graph TB
         Ollama[🧠 Ollama LLM]
         DockerHub[🐳 Docker Hub]
         GitHub[📦 GitHub Repos]
+        Discord[💬 Discord Webhook]
     end
 
     Client -->|"/"| Ingress
@@ -158,6 +168,7 @@ graph TB
     Ingress -->|"strip /hub"| Hub
     Ingress -->|"strip /pb"| PB
     Ingress -->|"strip /api/agent"| Agent
+    Ingress -->|"strip /kibana"| Kibana
 
     Blog -->|"http://pb-service"| PB
     Hub -->|"relative /pb/*"| PB
@@ -165,6 +176,14 @@ graph TB
     Agent -->|"SSE: http://bridge-service/sse"| Bridge
     Bridge -->|"http://pb-service"| PB
     Agent -.->|"Inference"| Ollama
+
+    FluentD -->|"Collect logs"| Frontend
+    FluentD -->|"Collect logs"| Backend
+    FluentD -->|"Forward logs"| ES
+    Kibana -->|"Visualize"| ES
+    AIOpsAgent -.->|"Query Errors"| ES
+    AIOpsAgent -.->|"Analyze"| Ollama
+    AIOpsAgent -.->|"Alert"| Discord
 
     PB --> PVC
 
@@ -469,6 +488,61 @@ tmcp-m-bridge/
 
 ---
 
+### 3.6. AIOps Observability Layer (ELK)
+
+graph TB
+    subgraph K8s["☸ Kubernetes Cluster (K3s)"]
+        Ingress[🔀 Traefik IngressRoute]
+        
+        subgraph AppLayer["Current TMCP Apps"]
+            Blog[Astro Blog]
+            Agent[Marketing Agent]
+        end
+
+        subgraph AIOpsLayer["AIOps & Observability Layer (NEW)"]
+            FluentD[FluentD<br>DaemonSet]
+            ES[(ElasticSearch<br>PVC 5Gi)]
+            Kibana[Kibana UI<br>:5601]
+            AIOpsAgent[AIOps CronJob<br>Python]
+        end
+        
+        ArgoCD[🔄 Argo CD]
+    end
+
+    subgraph External
+        Ollama[🧠 Ollama LLM]
+        Discord[💬 Discord Webhook]
+    end
+
+    Ingress -->|"/kibana"| Kibana
+    FluentD -->|"Collect container logs"| AppLayer
+    FluentD -->|"Forward logs"| ES
+    Kibana -->|"Visualize"| ES
+    AIOpsAgent -->|"Query Errors"| ES
+    AIOpsAgent -->|"Analyze"| Ollama
+    AIOpsAgent -->|"Alert"| Discord
+    ArgoCD -->|"Sync manifests"| AIOpsLayer
+
+    
+| Thuộc tính | Giá trị |
+|-------------|---------|
+| **Components** | Elasticsearch (logging DB), Kibana (UI), FluentD (Log shipper) |
+| **K8s Manifests** | [`aiops-logging.yaml`](../aiops-logging.yaml), [`fluentd.yaml`](../fluentd.yaml) |
+| **Service Ports** | `elasticsearch-service`: 9200, `kibana-service`: 5601 // 80 via Ingress |
+| **Storage** | PersistentVolumeClaim `elasticsearch-pvc` (5Gi) cho Elasticsearch |
+| **Log Source** | Container logs ở các nodes (K3s `/var/log/containers/*.log`) |
+
+#### Vai trò
+Đóng vai trò nền tảng thu thập và phân tích log tự động (chuẩn bị cho AI Agent đọc log & alert qua Discord):
+- **FluentD (DaemonSet)**: Chạy trên tất cả các nodes để thu thập log từ tất cả K8s Pods, làm giàu với K8s metadata, và đẩy tới Elasticsearch.
+- **Elasticsearch**: Lưu trữ log ngắn/trung hạn. Bị giới hạn heap size (1-2GB) để đảm bảo không tranh resource trên cụm K3s (16GB RAM mode).
+- **Kibana**: Dashboard trực quan để phân tích log cho Developer/SysAdmin.
+
+#### AIOps Flow Tương lai
+Log sau khi được thu thập có thể được query bằng một AIOps Agent (CronJob) → Đẩy qua Ollama LLM đánh giá lỗi → Bắn cảnh báo tự động về Discord webhook.
+
+---
+
 ## 4. Networking & Ingress
 
 ### 4.1. Traefik IngressRoute
@@ -483,6 +557,7 @@ Hệ thống sử dụng **Traefik IngressRoute** (CRD) thay vì standard Kubern
 | `/hub` | `strip-hub` | `hub-service` | 80 |
 | `/pb` | `strip-pb` | `pb-service` | 80 |
 | `/api/agent` | `strip-api-agent` | `agent-service` | 80 |
+| `/kibana` | `strip-kibana` | `kibana-service` | 80 |
 
 #### StripPrefix Middlewares
 
@@ -518,6 +593,7 @@ External (Ingress) → K8s Service → Pod Container
                   → pb-service:80      → :8090 (PocketBase)
                   → agent-service:80   → :8000 (FastAPI/Uvicorn)
                   → bridge-service:80  → :7999 (FastMCP SSE)
+                  → kibana-service:80  → :5601 (Kibana)
 ```
 
 ---
@@ -652,7 +728,9 @@ jobs:
 | `marketing-hub.yaml` | Deployment + Service | Marketing Hub SPA (2 replicas) |
 | `agent.yaml` | Deployment + Service | Marketing Agent (1 replica) |
 | `bridge.yaml` | Deployment + Service | MCP Bridge (1 replica) |
-| `ingress.yaml` | 3 Middlewares + 1 IngressRoute | Traefik routing rules |
+| `aiops-logging.yaml` | PVC, Deployments, Services | Elasticsearch, Kibana |
+| `fluentd.yaml` | DaemonSet, CM, RBAC | K8s FluentD Log Forwarder |
+| `ingress.yaml` | Traefik CRD Middlewares & Routes | Routing rules cho toàn hệ thống |
 
 ### 6.3. Deployment Flow
 
@@ -815,6 +893,9 @@ fetch("/api/agent/chat", {             @app.post("/chat")
 | Marketing Hub | 2 | ✅ | Static files via Nginx, scale freely |
 | Agent | 1 | ⚠️ | Stateful (thread memory), cần review |
 | MCP Bridge | 1 | ⚠️ | Stateless nhưng tied to PB auth session |
+| Kibana | 1 | ✅ | Frontend cho Elasticsearch |
+| Elasticsearch | 1 | ❌ | Single node config cho server 16GB RAM |
+| FluentD | N/A | ✅ | DaemonSet tự do scale theo số K8s Nodes |
 
 ### 10.2. High Availability Concerns
 
@@ -838,6 +919,8 @@ tmcp/                              # Root workspace
 │   ├── marketing-hub.yaml         #    Hub deployment
 │   ├── agent.yaml                 #    Agent deployment
 │   ├── bridge.yaml                #    MCP Bridge deployment
+│   ├── aiops-logging.yaml         #    ELK: Elasticsearch, Kibana
+│   ├── fluentd.yaml               #    ELK: FluentD Log Aggregator
 │   ├── ingress.yaml               #    Traefik IngressRoute + Middlewares
 │   ├── INFRASTRUCTURE.md          #    Infrastructure planning doc
 │   ├── docs/                      #    📁 Documentation (you are here)
@@ -898,14 +981,17 @@ tmcp-gitops/
 ├── bridge.yaml             ← Deployment (mcp-bridge, 1 replica)
 │                              Service (bridge-service:80→7999)
 │
-└── ingress.yaml            ← Middleware: strip-pb
-                               Middleware: strip-hub
-                               Middleware: strip-api-agent
+├── aiops-logging.yaml      ← PVC, Deployments, Services cho Elasticsearch & Kibana
+│
+├── fluentd.yaml            ← DaemonSet, RBAC, ConfigMap cho FluentD
+│
+└── ingress.yaml            ← Middleware: strip-pb, strip-hub, strip-api-agent, strip-kibana
                                IngressRoute: marketing-ingress
                                  /         → blog-service
                                  /hub      → hub-service
                                  /pb       → pb-service
                                  /api/agent → agent-service
+                                 /kibana   → kibana-service
 ```
 
 ---
@@ -948,6 +1034,11 @@ DEPLOYMENTS:
   marketing-hub     2/2   lupca/tmcp-marketing-hub:latest
   marketing-agent   1/1   lupca/tmcp-agents:latest
   mcp-bridge        1/1   lupca/tmcp-m-bridge:latest
+  elasticsearch     1/1   docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+  kibana            1/1   docker.elastic.co/kibana/kibana:8.12.0
+
+DAEMONSETS:
+  fluentd           1/1   fluent/fluentd-kubernetes-daemonset
 
 SERVICES:
   pb-service        ClusterIP   80 → 8090
@@ -955,15 +1046,19 @@ SERVICES:
   hub-service       ClusterIP   80 → 80
   agent-service     ClusterIP   80 → 8000
   bridge-service    ClusterIP   80 → 7999
+  elasticsearch-service ClusterIP 9200 → 9200
+  kibana-service    ClusterIP   80 → 5601
 
 PVC:
   pb-data-pvc       1Gi   ReadWriteOnce   Bound
+  elasticsearch-pvc 5Gi   ReadWriteOnce   Bound
 
 INGRESSROUTE:
-  marketing-ingress   /     → blog-service
-                      /hub  → hub-service
-                      /pb   → pb-service
+  marketing-ingress   /         → blog-service
+                      /hub      → hub-service
+                      /pb       → pb-service
                       /api/agent → agent-service
+                      /kibana   → kibana-service
 ```
 
 ### 12.3. Useful Commands
