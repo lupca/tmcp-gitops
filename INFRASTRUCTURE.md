@@ -112,6 +112,36 @@ Thêm routes (Sử dụng Traefik IngressRoute cho StripPrefix):
 
 ### Manual Verification (sau khi push code + Argo CD sync)
 
+> [!CAUTION]
+> **HashiCorp Vault Unseal Process (CRITICAL)**
+> 1. Bật tính năng K8s Auth trên Vault
+> vault auth enable kubernetes
+>   
+> 2. Cấu hình để Vault biết nó đang nằm trong cụm K8s nào
+> vault write auth/kubernetes/config \
+>    kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443"
+
+> 3. Tạo Role tên là "eso" (khớp với YAML của AI) và cho phép SA "external-secrets" được phép đọc nhánh "secret/data/tmcp/*"
+> vault write auth/kubernetes/role/eso \
+>    bound_service_account_names=external-secrets \
+>    bound_service_account_namespaces=external-secrets \
+>    policies=eso-policy \
+>    ttl=1h
+> Vì chúng ta sử dụng bare-metal K3s và không dùng Cloud KMS, Vault sẽ chuyển sang trạng thái **Sealed** mỗi khi Pod khởi động lại hoặc Node reboot. 
+> **Bắt buộc** phải chạy lệnh unseal bằng tay mỗi lần restart:
+> ```bash
+> kubectl exec -it -n vault vault-0 -- vault operator unseal <UNSEAL_KEY_1>
+> kubectl exec -it -n vault vault-0 -- vault operator unseal <UNSEAL_KEY_2>
+> kubectl exec -it -n vault vault-0 -- vault operator unseal <UNSEAL_KEY_3>
+> ```
+> *(Thay thế `<UNSEAL_KEY_X>` bằng các key nhận được lúc chạy `vault operator init` lần đầu)*
+
+> [!TIP]
+> **Thêm/Sửa Mật Khẩu với Vault & ESO**
+> 1. Lưu secret vào Vault: `kubectl exec -it -n vault vault-0 -- vault kv put secret/tmcp/agent POCKETBASE_PASSWORD="YOUR_PASSWORD"`
+> 2. Khai báo `ExternalSecret` trong GitOps YAML của app tương ứng (ví dụ: `agent.yaml`)
+> 3. ESO sẽ tự động lấy secret từ Vault và tạo thành K8s Secret trong cluster. Git repostiory sẽ hoàn toàn không chứa plaintext password.
+
 1. **Kiểm tra tất cả pods running**: `kubectl get pods` - tất cả pods phải ở trạng thái Running
 2. **Kiểm tra services**: `kubectl get svc` - phải có: `pb-service`, `blog-service`, `agent-service`, `bridge-service`, `hub-service`
 3. **Kiểm tra Ingress**: `kubectl get ingress` (hoặc `kubectl get ingressroute`) - phải có routes cho `/`, `/pb`, `/hub`, `/api/agent`

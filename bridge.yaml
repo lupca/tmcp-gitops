@@ -1,4 +1,22 @@
 # bridge.yaml – MCP Bridge (PocketBase ↔ Agent)
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: bridge-secrets
+spec:
+  refreshInterval: "30s"
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: bridge-secrets-k8s
+    creationPolicy: Owner
+  data:
+    - secretKey: POCKETBASE_PASSWORD
+      remoteRef:
+        key: tmcp/bridge
+        property: POCKETBASE_PASSWORD
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -12,14 +30,15 @@ spec:
     spec:
       containers:
       - name: bridge
-        image: lupca/tmcp-m-bridge:latest
+        image: lupca/tmcp-m-bridge:v0.0.4
         env:
         - name: POCKETBASE_URL
           value: "http://pb-service"
         - name: POCKETBASE_USER
           value: "admin@admin.com"
-        - name: POCKETBASE_PASSWORD
-          value: "123qweasdzxc"
+        envFrom:
+        - secretRef:
+            name: bridge-secrets-k8s
         ports: [{ containerPort: 7999 }]
 ---
 apiVersion: v1

@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
       - name: pb
-        image: lupca/tmcp-dashboard:v0.0.13
+        image: lupca/tmcp-dashboard:v0.0.18
         ports: [{ containerPort: 8090 }]
         volumeMounts:
         - name: data
