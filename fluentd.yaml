@@ -30,7 +30,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: fluentd
-  namespace: tmcp-marketing
+  namespace: argocd
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -97,17 +97,8 @@ data:
       </match>
     </label>
 
-    # 3. XỬ LÝ NHÁNH AIOPS (Lọc lỗi và bắn Webhook)
+    # 3. XỬ LÝ NHÁNH AIOPS (Gửi mọi log để AI Agent tự quyết định)
     <label @TO_AIOPS>
-      # Chỉ bắt những log có chứa từ khóa báo lỗi (Không phân biệt hoa thường)
-      <filter kubernetes.**>
-        @type grep
-        <regexp>
-          key log
-          pattern /(?i)(error|exception|fail|fatal|degraded)/
-        </regexp>
-      </filter>
-
       # Bắn Webhook (HTTP POST) dạng JSON
       <match kubernetes.**>
         @type http
