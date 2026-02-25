@@ -53,31 +53,79 @@ data:
       @type kubernetes_metadata
     </filter>
 
+    # 1. BỘ CHIA LUỒNG (Router)
     <match kubernetes.**>
-      @type elasticsearch
-      host elasticsearch-service
-      port 9200
-      logstash_format true
-      logstash_prefix fluentd
-      logstash_dateformat %Y%m%d
-      include_tag_key true
-      type_name access_log
-      tag_key @log_name
-      flush_interval 5s
-      <buffer>
-        @type file
-        path /var/log/fluentd-buffers/kubernetes.system.buffer
-        flush_mode interval
-        retry_type exponential_backoff
-        flush_thread_count 2
-        flush_interval 5s
-        retry_forever
-        retry_max_interval 30
-        chunk_limit_size 2M
-        queue_limit_length 8
-        overflow_action block
-      </buffer>
+      @type copy
+      # Nhánh 1: Gắn nhãn để đẩy về Elasticsearch
+      <store>
+        @type relabel
+        @label @TO_ELASTICSEARCH
+      </store>
+      # Nhánh 2: Gắn nhãn để đẩy sang AIOps Agent
+      <store>
+        @type relabel
+        @label @TO_AIOPS
+      </store>
     </match>
+
+    # 2. XỬ LÝ NHÁNH ELASTICSEARCH (Giữ nguyên như cũ)
+    <label @TO_ELASTICSEARCH>
+      <match kubernetes.**>
+        @type elasticsearch
+        host elasticsearch-service
+        port 9200
+        logstash_format true
+        logstash_prefix fluentd
+        logstash_dateformat %Y%m%d
+        include_tag_key true
+        type_name access_log
+        tag_key @log_name
+        flush_interval 5s
+        <buffer>
+          @type file
+          path /var/log/fluentd-buffers/kubernetes.system.buffer
+          flush_mode interval
+          retry_type exponential_backoff
+          flush_thread_count 2
+          flush_interval 5s
+          retry_forever
+          retry_max_interval 30
+          chunk_limit_size 2M
+          queue_limit_length 8
+          overflow_action block
+        </buffer>
+      </match>
+    </label>
+
+    # 3. XỬ LÝ NHÁNH AIOPS (Lọc lỗi và bắn Webhook)
+    <label @TO_AIOPS>
+      # Chỉ bắt những log có chứa từ khóa báo lỗi (Không phân biệt hoa thường)
+      <filter kubernetes.**>
+        @type grep
+        <regexp>
+          key log
+          pattern /(?i)(error|exception|fail|fatal|degraded)/
+        </regexp>
+      </filter>
+
+      # Bắn Webhook (HTTP POST) dạng JSON
+      <match kubernetes.**>
+        @type http
+        # Đổi thành URL thực tế của hệ thống AIOps của bạn
+        endpoint http://aiops-agent-service:80/api/webhook/k8s-logs
+        open_timeout 2
+        http_method post
+        content_type application/json
+        <format>
+          @type json
+        </format>
+        <buffer>
+          @type memory
+          flush_interval 2s  # Bắn ngay lập tức sau mỗi 2 giây
+          chunk_limit_size 1m
+        </buffer>
+      </match>
+    </label>
 ---
 apiVersion: apps/v1
 kind: DaemonSet
