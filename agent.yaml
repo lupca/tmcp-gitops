@@ -32,7 +32,7 @@ spec:
     spec:
       containers:
       - name: agent
-        image: lupca/tmcp-agents:v0.0.17 # Image from Docker Hub
+        image: lupca/tmcp-agents:v0.0.18 # Image from Docker Hub
         env:
         - name: PB_URL
           value: "http://pb-service"

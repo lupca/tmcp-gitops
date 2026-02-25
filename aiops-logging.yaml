@@ -1,31 +1,31 @@
-# aiops-logging.yaml
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
-metadata:
-  name: kibana-secrets
-  annotations:
-    argocd.argoproj.io/sync-wave: "1" # ĐÁNH DẤU ƯU TIÊN 2 (Đợi sóng -1 xong mới chạy)
-spec:
-  refreshInterval: "30s"
-  secretStoreRef:
-    name: vault-backend
-    kind: ClusterSecretStore
-  target:
-    name: kibana-secrets-k8s
-    creationPolicy: Owner
-  data:
-    - secretKey: XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY
-      remoteRef:
-        key: tmcp/kibana
-        property: XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY
-    - secretKey: XPACK_REPORTING_ENCRYPTIONKEY
-      remoteRef:
-        key: tmcp/kibana
-        property: XPACK_REPORTING_ENCRYPTIONKEY
-    - secretKey: XPACK_SECURITY_ENCRYPTIONKEY
-      remoteRef:
-        key: tmcp/kibana
-        property: XPACK_SECURITY_ENCRYPTIONKEY
+  # aiops-logging.yaml
+  apiVersion: external-secrets.io/v1beta1
+  kind: ExternalSecret
+  metadata:
+    name: kibana-secrets
+    annotations:
+      argocd.argoproj.io/sync-wave: "1" # ĐÁNH DẤU ƯU TIÊN 2 (Đợi sóng -1 xong mới chạy)
+  spec:
+    refreshInterval: "30s"
+    secretStoreRef:
+      name: vault-backend
+      kind: ClusterSecretStore
+    target:
+      name: kibana-secrets-k8s
+      creationPolicy: Owner
+    data:
+      - secretKey: XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY
+        remoteRef:
+          key: tmcp/kibana
+          property: XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY
+      - secretKey: XPACK_REPORTING_ENCRYPTIONKEY
+        remoteRef:
+          key: tmcp/kibana
+          property: XPACK_REPORTING_ENCRYPTIONKEY
+      - secretKey: XPACK_SECURITY_ENCRYPTIONKEY
+        remoteRef:
+          key: tmcp/kibana
+          property: XPACK_SECURITY_ENCRYPTIONKEY
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

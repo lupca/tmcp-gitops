@@ -208,3 +208,12 @@ kubectl exec -it -n vault vault-0 -- vault kv put secret/tmcp/aiops-agent DISCOR
 1. **Kiểm tra sức khoẻ**: `kubectl get pods -A` (Tất cả phải Running)
 2. **Kiểm tra Ingress Routes**: Truy cập `/pb/_/` (PocketBase), `/hub` (Marketing SPA), `/api/agent/health`.
 3. **Trigger AIOps Local**: Gửi HTTP POST tới `http://aiops-agent-service.default.svc.cluster.local/api/webhook/alert` từ bên trong cụm để test luồng Discord webhook.
+
+1. **Kiểm tra tất cả pods running**: `kubectl get pods` - tất cả pods phải ở trạng thái Running
+2. **Kiểm tra services**: `kubectl get svc` - phải có: `pb-service`, `blog-service`, `agent-service`, `bridge-service`, `hub-service`
+3. **Kiểm tra Ingress**: `kubectl get ingress` (hoặc `kubectl get ingressroute`) - phải có routes cho `/`, `/pb`, `/hub`, `/api/agent`
+4. **Test PocketBase**: Truy cập `http://<server-ip>/pb/_/` - phải mở được admin UI
+5. **Test Blog**: Truy cập `http://<server-ip>/` - phải load được blog
+6. **Test Marketing Hub**: Truy cập `http://<server-ip>/hub` - phải load được SPA
+7. **Test Agent API**: `curl http://<server-ip>/api/agent/health` - phải trả về `{"status":"ok"}`
+8. **Test Agent ↔ Bridge**: Gửi chat message từ Marketing Hub → xem Agent có gọi được MCP tools không
