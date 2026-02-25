@@ -39,7 +39,7 @@ spec:
         - name: OLLAMA_BASE_URL
           value: "http://ollama-service:11434" # Assume ollama is running in cluster or adjust accordingly
         - name: OLLAMA_MODEL
-          value: "llama3"
+          value: "qwen3:4b-instruct-2507-14_K_M"
         envFrom:
         - secretRef:
             name: aiops-agent-secrets-k8s

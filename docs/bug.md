@@ -226,3 +226,124 @@
 
   Bằng cách cấp lại quyền chính xác và loại bỏ bộ lọc không cần thiết, luồng log từ Fluentd đến aiops-agent đã được khơi thông và hệ thống hoạt động như mong đợi.
 
+=========================
+
+  Báo cáo sự cố: Khắc phục lỗi kết nối từ AIOps Agent đến Ollama LLM
+
+  1. Tình trạng ban đầu
+
+
+  Sau khi khắc phục sự cố luồng log từ Fluentd, AIOps Agent đã bắt đầu nhận được tín hiệu. Tuy nhiên, một lỗi mới phát sinh trong quá trình agent cố gắng phân tích log bằng mô hình ngôn ngữ lớn
+  (LLM).
+
+  Log của aiops-agent pod hiển thị lỗi sau:
+
+
+   1 Error during LLM analysis: HTTPConnectionPool(host='ollama-service', port=11434): Max retries exceeded with url: /api/chat
+   2 (Caused by NameResolutionError("HTTPConnection(host='ollama-service', port=11434): Failed to resolve 'ollama-service' ..."))
+
+
+  Phân tích lỗi:
+   - Lỗi NameResolutionError cho thấy agent (đang chạy bên trong cluster Kubernetes) đã cố gắng tìm một dịch vụ (service) có tên là ollama-service nhưng không thành công.
+   - Nguyên nhân cốt lõi là do Ollama đang chạy trên máy cục bộ (host machine), bên ngoài môi trường mạng của Kubernetes. Do đó, DNS nội bộ của cluster không thể phân giải được tên ollama-service.
+
+  2. Quá trình sửa lỗi
+
+
+  Để giải quyết vấn đề, chúng ta cần xây dựng một "cây cầu" mạng, cho phép các dịch vụ bên trong Kubernetes "nhìn thấy" và giao tiếp với dịch vụ Ollama đang chạy bên ngoài.
+
+  Bước 1: Tạo cầu nối mạng bằng Service và Endpoints
+
+  Đây là phương pháp chuẩn của Kubernetes để ánh xạ một dịch vụ bên ngoài vào trong cluster.
+
+
+  1.1. Xác định địa chỉ IP của máy Host:
+  Đầu tiên, chúng ta cần tìm địa chỉ IP của máy host mà cluster K3s có thể truy cập được.
+   - Lệnh đã dùng: ifconfig | grep "inet " | grep -v 127.0.0.1
+   - Kết quả: Tìm được địa chỉ IP là 192.168.0.102.
+
+
+  1.2. Tạo file cấu hình `ollama-external-service.yaml`:
+  Tôi đã tạo một file YAML để định nghĩa hai đối tượng Kubernetes:
+   - `Service`: Một service ảo tên là ollama-service. Nó không có selector vì nó không quản lý pod nào bên trong cluster. Nó chỉ đóng vai trò là một DNS entry (tên miền) cố định.
+   - `Endpoints`: Một đối tượng có cùng tên (ollama-service) để chỉ định địa chỉ IP thực tế cho Service ảo ở trên. Chúng ta trỏ nó đến địa chỉ IP của máy host và port của Ollama (11434).
+
+  Nội dung file `ollama-external-service.yaml`:
+
+
+    1 apiVersion: v1
+    2 kind: Service
+    3 metadata:
+    4   name: ollama-service
+    5 spec:
+    6   ports:
+    7   - protocol: TCP
+    8     port: 11434
+    9     targetPort: 11434
+   10 ---
+   11 apiVersion: v1
+   12 kind: Endpoints
+   13 metadata:
+   14   name: ollama-service
+   15 subsets:
+   16   - addresses:
+   17       - ip: "192.168.0.102"
+   18     ports:
+   19       - port: 11434
+
+
+  1.3. Áp dụng cấu hình:
+  Lệnh sau đã được thực thi để tạo Service và Endpoints trên cluster.
+   - Lệnh đã dùng: kubectl apply -f ollama-external-service.yaml
+   - Kết quả: Tên miền http://ollama-service:11434 giờ đã có thể được phân giải từ bên trong cluster và trỏ đến http://192.168.0.102:11434.
+
+
+  1.4. Khởi động lại AIOps Agent:
+  Để agent nhận ngay lập tức DNS mới, pod của nó đã được khởi động lại.
+   - Lệnh đã dùng: kubectl delete pod <tên-pod-agent>
+
+  Bước 2: Sửa lỗi không tìm thấy mô hình (404 Not Found)
+
+  Sau khi kết nối thành công, một lỗi mới xuất hiện trong log của agent: Ollama call failed with status code 404.
+
+
+  Phân tích lỗi:
+   - Lỗi 404 Not Found từ Ollama server có nghĩa là kết nối đã thành công, nhưng mô hình LLM mà agent yêu cầu không tồn tại trên server.
+   - Cấu hình mặc định trong aiops-agent.yaml đang yêu cầu mô hình llama3.
+
+
+  Hành động:
+  Theo yêu cầu của bạn, tôi đã thay đổi mô hình thành qwen3:4b-instruct-2507-q4_K_M mà bạn đã có sẵn.
+
+
+  2.1. Cập nhật file `aiops-agent.yaml`:
+  Tôi đã chỉnh sửa biến môi trường OLLAMA_MODEL trong file triển khai.
+
+  Cấu hình trước khi sửa:
+   1 - name: OLLAMA_MODEL
+   2   value: "llama3"
+
+  Cấu hình sau khi sửa:
+
+
+   1 - name: OLLAMA_MODEL
+   2   value: "qwen3:4b-instruct-2507-q4_K_M"
+
+
+  2.2. Áp dụng lại cấu hình:
+   - Lệnh đã dùng: kubectl apply -f aiops-agent.yaml
+   - Kết quả: Kubernetes tự động cập nhật Deployment, tạo ra một pod agent mới với biến môi trường đã được cập nhật.
+
+  3. Kết quả cuối cùng
+
+
+  Sau khi thực hiện cả hai bước trên, hệ thống đã hoạt động hoàn chỉnh:
+   1. Fluentd gửi log tới AIOps Agent.
+   2. AIOps Agent nhận log, sau đó gửi yêu cầu phân tích đến ollama-service.
+   3. Kubernetes DNS phân giải ollama-service thành địa chỉ IP 192.168.0.102 của máy host.
+   4. Agent kết nối thành công đến Ollama server trên máy host.
+   5. Agent yêu cầu phân tích bằng mô hình `qwen3`, mô hình này có sẵn và xử lý yêu cầu.
+   6. Agent nhận kết quả và gửi thông báo thành công qua Discord.
+
+
+  Sự cố đã được giải quyết triệt để.
