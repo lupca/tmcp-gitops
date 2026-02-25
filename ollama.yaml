@@ -20,13 +20,11 @@ spec:
         volumeMounts:
         - name: ollama-data
           mountPath: /root/.ollama
-        lifecycle:
-          postStart:
-            exec:
-              command: ["/bin/sh", "-c", "sleep 10 && ollama pull qwen3:4b-instruct-2507-14_K_M"]
       volumes:
       - name: ollama-data
-        emptyDir: {}
+        hostPath:
+          path: /Users/bodoi17/.ollama
+          type: Directory
 ---
 apiVersion: v1
 kind: Service
