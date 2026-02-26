@@ -14,6 +14,6 @@ metadata:
   name: ollama-service
 subsets:
   - addresses:
-      - ip: "192.168.0.103"
+      - ip: "192.168.0.102"
     ports:
       - port: 11434
