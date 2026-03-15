@@ -1,4 +1,24 @@
 # pb.yaml
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: pb-secrets
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  refreshInterval: "30s"
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: pb-secrets-k8s
+    creationPolicy: Owner
+  data:
+    - secretKey: PB_ADMIN_PASSWORD
+      remoteRef:
+        key: tmcp/video-creater
+        property: PB_ADMIN_PASSWORD
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -20,8 +40,14 @@ spec:
     spec:
       containers:
       - name: pb
-        image: lupca/tmcp-dashboard:v0.0.21
+        image: lupca/tmcp-dashboard:v0.0.22
         ports: [{ containerPort: 8090 }]
+        env:
+        - name: PB_ADMIN_EMAIL
+          value: "admin@admin.com"
+        envFrom:
+        - secretRef:
+            name: pb-secrets-k8s
         livenessProbe:
           httpGet:
             path: /api/health
