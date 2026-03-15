@@ -32,7 +32,7 @@ spec:
     spec:
       containers:
       - name: video-creater
-        image: lupca/video-creater:latest
+        image: lupca/video-creater:v0.0.3
         env:
         - name: PB_URL
           value: "http://pb-service"

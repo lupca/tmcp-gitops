@@ -32,7 +32,7 @@ spec:
     spec:
       containers:
       - name: bridge
-        image: lupca/tmcp-m-bridge:v0.0.4
+        image: lupca/tmcp-m-bridge:v0.0.5
         env:
         - name: POCKETBASE_URL
           value: "http://pb-service"

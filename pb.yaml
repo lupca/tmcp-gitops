@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
       - name: pb
-        image: lupca/tmcp-dashboard:v0.0.18
+        image: lupca/tmcp-dashboard:v0.0.21
         ports: [{ containerPort: 8090 }]
         livenessProbe:
           httpGet:
