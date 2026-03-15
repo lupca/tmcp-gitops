@@ -48,6 +48,16 @@ spec:
         - secretRef:
             name: agent-secrets-k8s
         ports: [{ containerPort: 8000 }]
+        livenessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
