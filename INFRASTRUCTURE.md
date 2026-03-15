@@ -189,16 +189,34 @@ sudo kubectl exec -it -n vault vault-0 -- sh -c "echo 'path \"secret/data/tmcp/*
 sudo kubectl exec -it -n vault vault-0 -- vault write auth/kubernetes/role/eso bound_service_account_names=external-secrets bound_service_account_namespaces=external-secrets policies=eso-policy ttl=1h
 ```
 
-### 5. Quản trị Mật khẩu (Secret Management)
-Nếu Pod báo chờ `CreateContainerConfigError`, nghĩa là ESO không móc được Secret từ Vault (do bạn chưa tạo key). 
+### 5. Quản trị Mật khẩu (Secret Management) — TỰ ĐỘNG QUA TERRAFORM
 
-**Cách tạo / cập nhật mật khẩu:**
+Bước này đã được **tự động hoá** trong `main.tf` step 6.5 (`seed_vault_secrets`). Script `seed-vault.sh` sẽ:
+1. Login Vault bằng Root Token (từ `tmcp_vault_keys.txt`)
+2. Bật KV-v2 engine + Kubernetes Auth + ESO policy
+3. Inject tất cả secrets vào Vault
+
+**Secrets được quản lý:**
+
+| Vault Path | Properties | App sử dụng |
+|---|---|---|
+| `tmcp/bridge` | `POCKETBASE_PASSWORD` | MCP Bridge |
+| `tmcp/agent` | `POCKETBASE_PASSWORD`, `GOOGLE_API_KEY`, `LANGSMITH_API_KEY` | Marketing Agent |
+| `tmcp/aiops-agent` | `DISCORD_WEBHOOK_URL` | AIOps Agent |
+| `tmcp/video-creater` | `PB_ADMIN_PASSWORD` | Video-Creater Worker |
+| `tmcp/kibana` | 3 encryption keys | Kibana |
+
+**Cách override giá trị:**
 ```bash
-# Sửa/Tạo mật khẩu cho PocketBase (Agent)
-kubectl exec -it -n vault vault-0 -- vault kv put secret/tmcp/agent POCKETBASE_PASSWORD="YOUR_PASSWORD"
+# Copy template và điền giá trị
+cp terraform.tfvars.example terraform.tfvars
+# Sửa terraform.tfvars, sau đó:
+terraform apply
+```
 
-# Sửa/Tạo mật khẩu Discord (AIOps Agent)
-kubectl exec -it -n vault vault-0 -- vault kv put secret/tmcp/aiops-agent DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/xxxx/yyyy"
+**Cách thêm secret mới thủ công (nếu cần):**
+```bash
+kubectl exec -it -n vault vault-0 -- vault kv put secret/tmcp/<app> KEY="VALUE"
 ```
 *Sau khi chạy lệnh, vào ArgoCD ấn Refresh và Sync App `tmcp-gitops` để ESO cập nhật ngay lập tức.*
 

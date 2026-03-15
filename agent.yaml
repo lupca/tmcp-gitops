@@ -18,6 +18,14 @@ spec:
       remoteRef:
         key: tmcp/agent
         property: POCKETBASE_PASSWORD
+    - secretKey: GOOGLE_API_KEY
+      remoteRef:
+        key: tmcp/agent
+        property: GOOGLE_API_KEY
+    - secretKey: LANGSMITH_API_KEY
+      remoteRef:
+        key: tmcp/agent
+        property: LANGSMITH_API_KEY
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -44,6 +52,12 @@ spec:
           value: "http://ollama-service:11434"
         - name: OLLAMA_MODEL
           value: "qwen3:4b-instruct-2507-14_K_M"
+        - name: LANGSMITH_TRACING
+          value: "true"
+        - name: LANGSMITH_ENDPOINT
+          value: "https://api.smith.langchain.com"
+        - name: LANGSMITH_PROJECT
+          value: "My First App"
         envFrom:
         - secretRef:
             name: agent-secrets-k8s

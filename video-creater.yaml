@@ -1,0 +1,56 @@
+# video-creater.yaml – Video Rendering Worker
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: video-creater-secrets
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  refreshInterval: "30s"
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: video-creater-secrets-k8s
+    creationPolicy: Owner
+  data:
+    - secretKey: PB_ADMIN_PASSWORD
+      remoteRef:
+        key: tmcp/video-creater
+        property: PB_ADMIN_PASSWORD
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: video-creater
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: video-creater }
+  template:
+    metadata: { labels: { app: video-creater } }
+    spec:
+      containers:
+      - name: video-creater
+        image: lupca/video-creater:latest
+        env:
+        - name: PB_URL
+          value: "http://pb-service"
+        - name: PB_ADMIN_EMAIL
+          value: "admin@admin.com"
+        - name: MAX_WORKERS
+          value: "2"
+        - name: POLL_INTERVAL
+          value: "5"
+        - name: LEASE_SECONDS
+          value: "600"
+        envFrom:
+        - secretRef:
+            name: video-creater-secrets-k8s
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2000m"
+            memory: "2Gi"
